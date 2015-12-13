@@ -1,4 +1,3 @@
-
 from datetime import datetime
 from pox.lib.revent.revent import EventMixin, Event
 import pox.lib.util as util
@@ -15,6 +14,23 @@ switch_ports = {}
 adj = defaultdict(lambda:defaultdict(lambda:None))
  
 mac_learning = {}
+
+traffic_matrix = {}
+
+# The edge weights based on IPG metrics from Abilene network
+weights_topo = [[],\
+        [0,0,1,0,0,0,0,0,0,0,0,0,0],\
+        [0,1,0,0,0,1176,587,0,0,0,0,0,846],\
+        [0,0,0,0,0,0,260,0,0,700,0,0,0],\
+        [0,0,0,0,0,0,0,639,0,0,1295,2095,0],\
+        [0,0,1176,0,0,0,0,902,1893,0,0,0,0],\
+        [0,0,587,260,0,0,0,548,0,0,0,0,0],\
+        [0,0,0,0,639,902,548,0,0,0,0,0,0],\
+        [0,0,0,0,0,1893,0,0,0,0,366,0,0],\
+        [0,0,0,700,0,0,0,0,0,0,0,0,233],\
+        [0,0,0,0,1295,0,0,0,366,0,0,861,0],\
+        [0,0,0,0,2095,0,0,0,0,0,861,0,0],\
+        [0,0,846,0,0,0,0,0,0,233,0,0,0]]
  
 class ofp_match_withHash(of.ofp_match):
         ##Our additions to enable indexing by match specifications
@@ -49,10 +65,12 @@ class Path(object):
                 self.first_port = first_port
        
         def __repr__(self):
-                ret = util.dpid_to_str(self.dst)
+                #ret = util.dpid_to_str(self.dst)
+                ret = str(self.dst)
                 u = self.prev[self.dst]
                 while(u != None):
-                        ret = util.dpid_to_str(u) + "->" + ret
+                        #ret = util.dpid_to_str(u) + " -> " + ret
+                        ret = str(u) + " -> " + ret
                         u = self.prev[u]
                
                 return ret                       
@@ -64,8 +82,8 @@ class Path(object):
                 while u != None:
                         list.append(u)
                         u = self.prev[u]
-                #log.debug("List path: %s", list)
-                #log.debug("Tuple path: %s", tuple(list))
+                log.debug("List path: %s", list)
+                log.debug("Tuple path: %s", tuple(list))
                 return tuple(list)
        
         def __hash__(self):
@@ -85,20 +103,6 @@ def _get_path(src, dst):
                 previous[dpid] = None
  
         distance[src] = 0 
-        # The edge weights based on IPG metrics from Abilene network
-        weights_topo = [[],\
-        [0,0,1,0,0,0,0,0,0,0,0,0,0],\
-        [0,1,0,0,0,1176,587,0,0,0,0,0,846],\
-        [0,0,0,0,0,0,260,0,0,700,0,0,0],\
-        [0,0,0,0,0,0,0,639,0,0,1295,2095,0],\
-        [0,0,1176,0,0,0,0,902,1893,0,0,0,0],\
-        [0,0,587,260,0,0,0,548,0,0,0,0,0],\
-        [0,0,0,0,639,902,548,0,0,0,0,0,0],\
-        [0,0,0,0,0,1893,0,0,0,0,366,0,0],\
-        [0,0,0,700,0,0,0,0,0,0,0,0,233],\
-        [0,0,0,0,1295,0,0,0,366,0,0,861,0],\
-        [0,0,0,0,2095,0,0,0,0,0,861,0,0],\
-        [0,0,846,0,0,0,0,0,0,233,0,0,0]]
 
         for i in range(len(keys)-1):
                 for u in adj.keys(): #nested dict
@@ -253,7 +257,7 @@ class Switch(EventMixin):
                
                 #log.debug("Received PacketIn")          
                 packet = event.parsed
-                               
+
                 SwitchPort = namedtuple('SwitchPoint', 'dpid port')
                
                 if (event.dpid,event.port) not in switch_ports:                                               # only relearn locations if they arrived from non-interswitch links
@@ -264,7 +268,7 @@ class Switch(EventMixin):
                         log.debug("Switch %s dropped LLDP packet", self)
                 elif packet.dst.is_multicast:
                         flood()
-                        #log.debug("Switch %s flooded multicast 0x%0.4X type packet", self, packet.effective_ethertype)
+                        log.debug("Switch %s flooded multicast 0x%0.4X type packet", self, packet.effective_ethertype)
                 elif packet.dst not in mac_learning:
                         flood() #Let's first learn the location of the recipient before generating and installing any rules for this. We might flood this but that leads to further complications if half way the flood through the network the path has been learned.
                         log.debug("Switch %s flooded unicast 0x%0.4X type packet, due to unlearned MAC address", self, packet.effective_ethertype)
@@ -288,6 +292,7 @@ class Switch(EventMixin):
                                 flood()
                                 return
                         log.debug("Path from %s to %s \nover path %s", packet.src, packet.dst, prev_path)
+                        print 'The Shortest Path: %s' %(prev_path)
                        
                         match = ofp_match_withHash.from_packet(packet)
                         _install_path(prev_path, match)
@@ -302,7 +307,29 @@ class Switch(EventMixin):
                        
                         self.raiseEvent(NewFlow(prev_path, match, adj))
                         log.debug("Switch %s processed unicast 0x%0.4x type packet, send to recipient by switch %s", self, packet.effective_ethertype, util.dpid_to_str(dst.dpid))
-                       
+                    
+                        # assume the link capacity is 200, and link utilization treshold is 70%
+                        link_capacity = 200
+                        str_nodes = str(prev_path).split(' -> ')
+                        nodes = map(int, str_nodes)
+                        print len(msg)
+                        length = len(nodes) - 1
+                        #print packet.len
+                        traffic = len(packet)
+                        for i in range(length):
+                            if (nodes[i], nodes[i+1]) in traffic_matrix:
+                                traffic_matrix[nodes[i], nodes[i+1]] = traffic_matrix[nodes[i], nodes[i+1]] + traffic
+                                link_util = traffic_matrix[nodes[i], nodes[i+1]] / float(link_capacity) * 100
+                                if link_util >= 70:
+                                    weights_topo[nodes[i]][nodes[i+1]] = float('+inf')
+                                    print 'link %s -> %s utilization over 70 percents currently %s' %(nodes[i], nodes[i+1], link_util)
+                            else:
+                                traffic_matrix[nodes[i], nodes[i+1]] = traffic
+                                link_util = traffic_matrix[nodes[i], nodes[i+1]] / float(link_capacity) * 100
+                                if link_util >= 70:
+                                    weights_topo[nodes[i]][nodes[i+1]] = float('+inf')
+                                    print 'link %s -> %s utilization over 70 percents currently %s' %(nodes[i], nodes[i+1], link_util)
+                        print traffic_matrix
                
         def _handle_ConnectionDown(self, event):
                 log.debug("Switch %s going down", util.dpid_to_str(self.connection.dpid))
@@ -319,7 +346,7 @@ class NewSwitch(Event):
 class Forwarding(EventMixin):
         _core_name = "myforwarding"
         _eventMixin_events = set([NewSwitch,])
-       
+        
         def __init__ (self):
                 log.debug("Forwarding is initialized")
                                
@@ -332,11 +359,13 @@ class Forwarding(EventMixin):
                        
         def _handle_LinkEvent(self, event):
                 link = event.link
+                #print '************************'
+                #print link
                 if event.added:
                         log.debug("Received LinkEvent, Link Added from %s to %s over port %d", util.dpid_to_str(link.dpid1), util.dpid_to_str(link.dpid2), link.port1)
                         adj[link.dpid1][link.dpid2] = link.port1
                         switch_ports[link.dpid1,link.port1] = link
-                else:
+                #else:
                         log.debug("Received LinkEvent, Link Removed from %s to %s over port %d", util.dpid_to_str(link.dpid1), util.dpid_to_str(link.dpid2), link.port1)
                
         def _handle_ConnectionUp(self, event):
@@ -347,7 +376,7 @@ class Forwarding(EventMixin):
  
 def launch (postfix=datetime.now().strftime("%Y%m%d%H%M%S")):
         from log.level import launch
-        launch(DEBUG=True)
+        launch(DEBUG=False)
  
         from samples.pretty_log import launch
         launch()
