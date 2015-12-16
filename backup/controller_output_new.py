@@ -21,7 +21,7 @@ link_flows_matrix = {}
 link_timeout_matrix = {}
 bandwidth = {}
 previous = {}
-timeout = 10
+timeout = 15
 max_flows_per_link = 1
 
 # The edge weights based on IGP metrics from Abilene network
@@ -52,7 +52,7 @@ weights_topo = [[],\
         [0,0,0,0,1295,0,0,0,366,0,0,861,0],\
         [0,0,0,0,2095,0,0,0,0,0,861,0,0],\
         [0,0,846,0,0,0,0,0,0,233,0,0,0]]
- 
+
 class ofp_match_withHash(of.ofp_match):
         ##Our additions to enable indexing by match specifications
         @classmethod
@@ -319,7 +319,7 @@ class Switch(EventMixin):
                         dst = mac_learning[packet.dst]
 
                         self.update_matrices()                    
-    
+                        print weights_topo
                         prev_path = _get_path(self.connection.dpid, dst.dpid)
                         
                         path_nodes = map(int, str(prev_path).split(' -> '))
