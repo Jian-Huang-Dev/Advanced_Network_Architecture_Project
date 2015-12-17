@@ -35,7 +35,7 @@ import time
 from collections import namedtuple
 from random import shuffle, random
 
-from pox.controller_output_new import weights_topo
+from pox.controller_output_new import weights_topo, ori_weights_topo
 
 log = core.getLogger()
 
@@ -234,7 +234,12 @@ class Link (namedtuple("LinkBase",("dpid1","port1","dpid2","port2"))):
   def __repr__ (self):
     return "Link(dpid1=%s,port1=%s, dpid2=%s,port2=%s)" % (self.dpid1,
         self.port1, self.dpid2, self.port2)
+  
+  def _str_src(self):
+    return '%s' %(str(self[0]))
 
+  def _str_dst(self):
+    return '%s' %(str(self[2]))
 
 class Discovery (EventMixin):
   """
@@ -317,8 +322,14 @@ class Discovery (EventMixin):
                if timestamp + self._link_timeout < now]
     if expired:
       for link in expired:
-        x = expired[0][0]
-        y = expired[0][2]
+        #x = expired[0][0]
+        #y = expired[0][2]
+        #weights_topo[x][y] = float('+inf')
+        #weights_topo[y][x] = float('+inf')
+
+        x = int(link._str_src())
+        y = int(link._str_dst())
+
         weights_topo[x][y] = float('+inf')
         weights_topo[y][x] = float('+inf')
         log.info('link timeout: %s', link)
@@ -444,7 +455,13 @@ class Discovery (EventMixin):
 
     if link not in self.adjacency:
       self.adjacency[link] = time.time()
-      print link
+
+      x = int(link._str_src())
+      y = int(link._str_dst())
+
+      weights_topo[x][y] = ori_weights_topo[x][y]
+      weights_topo[y][x] = ori_weights_topo[y][x]    
+
       log.info('link detected: %s', link)
       self.raiseEventNoErrors(LinkEvent, True, link)
     else:
