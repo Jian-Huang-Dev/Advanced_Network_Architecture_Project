@@ -4,7 +4,9 @@ from mininet.node import RemoteController
 from mininet.link import TCLink
 from mininet.cli  import CLI
 from mininet.util import quietRun
- 
+
+# Building a real world Abilene network topology
+
 net = Mininet(link=TCLink);
  
 # Add links
